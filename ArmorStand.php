@@ -23,6 +23,7 @@ use pocketmine\event\player\PlayerInteractEvent;
 use pocketmine\item\Item;
 
 use pocketmine\block\Block;
+use pocketmine\block\BlockFactory;
 
 use pocketmine\entity\Entity;
 use pocketmine\entity\Monster;
@@ -40,7 +41,7 @@ use pocketmine\event\inventory\InventoryTransactionEvent;
 
 use pocketmine\event\server\DataPacketReceiveEvent;
 use pocketmine\network\mcpe\protocol\AddActorPacket;
-use pocketmine\network\mcpe\protocol\types\WindowTypes;
+use pocketmine\network\mcpe\protocol\UpdateBlockPacket;
 use pocketmine\network\mcpe\protocol\ContainerOpenPacket;
 use pocketmine\network\mcpe\protocol\ContainerClosePacket;
 use pocketmine\network\mcpe\protocol\BlockActorDataPacket;
@@ -49,6 +50,8 @@ use pocketmine\network\mcpe\protocol\ModalFormRequestPacket;
 use pocketmine\network\mcpe\protocol\ModalFormResponsePacket;
 use pocketmine\network\mcpe\protocol\MobEquipmentPacket;
 use pocketmine\network\mcpe\protocol\MobArmorEquipmentPacket;
+use pocketmine\network\mcpe\protocol\types\WindowTypes;
+use pocketmine\network\mcpe\protocol\types\RuntimeBlockMapping;
 
 use pocketmine\nbt\tag\ListTag;
 use pocketmine\nbt\tag\FloatTag;
@@ -73,6 +76,8 @@ use ifteam\SimpleArea\database\user\UserProperties;
 class ArmorStand extends PluginBase implements Listener{
    
   public $data, $item, $code, $tag;
+
+  public $x, $y, $z;
   
   private $cool;
   
@@ -110,10 +115,14 @@ class ArmorStand extends PluginBase implements Listener{
     $player = $e->getPlayer();
     $name = strtolower($player->getName());
     
-    if(!isset($this->cool[$name]){
+    if(!isset($this->cool[$name])){
 
       $this->cool[$name] = time();
     }
+
+    $this->x[$name] = 0;
+    $this->y[$name] = 0;
+    $this->z[$name] = 0;
   }
   public function onInteract(PlayerInteractEvent $e){
   
@@ -130,7 +139,7 @@ class ArmorStand extends PluginBase implements Listener{
     
     $area = AreaProvider::getInstance()->getArea($player->getLevel() ,$block->getX() ,$block->getZ());
     
-    if(!isset($this->cool[$name]) return true;
+    if(!isset($this->cool[$name])) return true;
     
     if($this->cool[$name] == time()) return true;
     
@@ -723,6 +732,8 @@ class StandInv extends ContainerInventory{
   }
   public function onOpen(Player $player):void{
 
+    $name = strtolower($player->getName());
+
     BaseInventory::onOpen($player);
     
     $block = Block::get(54, 0);
@@ -730,7 +741,11 @@ class StandInv extends ContainerInventory{
     $block->y = (int) $player->y + 4;
     $block->z = (int) $player->z;
     $player->getLevel()->sendBlocks([$player], [$block]);
-		
+	
+	$this->plugin->x[$name] = (int) $player->x;
+	$this->plugin->y[$name] = (int) $player->y + 4;
+	$this->plugin->z[$name] = (int) $player->z;
+
     $tag = new CompoundTag();
     $tag->setString("CustomName", $this->title);
 		
@@ -748,8 +763,6 @@ class StandInv extends ContainerInventory{
     $pk->y = $block->y;
     $pk->z = $block->z;
     $player->dataPacket($pk);
-    
-    $name = strtolower($player->getName());
     
     for($i = 0; $i <= 26; $i++){
     
@@ -808,8 +821,24 @@ class StandInv extends ContainerInventory{
   }
   public function onClose(Player $player):void{
 
+  	$name = strtolower($player->getName());
+
     BaseInventory::onClose($player);
     
+    $x = $this->plugin->x[$name];
+    $y = $this->plugin->y[$name];
+    $z = $this->plugin->z[$name];
+
+    $block = $player->getLevel()->getBlock(new Vector3($x, $y, $z));
+
+    $pk = new UpdateBlockPacket();
+    $pk->blockRuntimeId = BlockFactory::toStaticRuntimeId($block->getId(), $block->getDamage());
+    $pk->x = $x;
+    $pk->y = $y;
+    $pk->z = $z;
+    $pk->flags = UpdateBlockPacket::FLAG_NONE;
+    $player->sendDataPacket($pk);
+
     $pk = new ContainerClosePacket();
     $pk->windowId = $player->getWindowId($this);
     $player->dataPacket($pk);
